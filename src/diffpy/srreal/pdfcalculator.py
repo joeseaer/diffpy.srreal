@@ -16,11 +16,13 @@
 Top-level classes for PDF calculation:
     DebyePDFCalculator -- simulate PDF by evaluating Debye sum in Q-space
     PDFCalculator      -- calculate PDF by peak summation in real space
+    PDF3DCalculator    -- calculate a three-dimensional real-space PDF
 """
 
 from diffpy.srreal import srreal_ext as _srreal_ext
 from diffpy.srreal.srreal_ext import DebyePDFCalculator as _DebyePDFCalculator
 from diffpy.srreal.srreal_ext import PDFCalculator as _PDFCalculator
+from diffpy.srreal.srreal_ext import PDF3DCalculator as _PDF3DCalculator
 from diffpy.srreal.srreal_ext import fftftog, fftgtof
 from diffpy.srreal.wraputils import (
     propertyFromExtDoubleAttr,
@@ -29,7 +31,7 @@ from diffpy.srreal.wraputils import (
 
 # exported items
 __all__ = """
-    DebyePDFCalculator PDFCalculator
+    DebyePDFCalculator PDFCalculator PDF3DCalculator
     fftftog fftgtof
     """.split()
 
@@ -336,8 +338,62 @@ PDFCalculator.stepcut = propertyFromExtDoubleAttr(
 
 # End of class PDFCalculator
 
+
+# PDF3DCalculator ------------------------------------------------------------
+
+
+class PDF3DCalculator(_PDF3DCalculator):
+    __doc__ = _PDF3DCalculator.__doc__
+
+    def __init__(self, **kwargs):
+        """Create a new instance of PDF3DCalculator.
+
+        Keyword arguments can be used to configure the calculator properties,
+        for example:
+
+            p3c = PDF3DCalculator(rmax=10.0, gridstep=0.1, qmax=12)
+
+        Raise ValueError for invalid keyword argument.
+        """
+        super().__init__()
+        setattrFromKeywordArguments(self, **kwargs)
+        return
+
+    def __call__(self, structure=None, **kwargs):
+        """Calculate and return the flattened ``[x, y, z, G, ...]`` data.
+
+        Keyword arguments configure calculator attributes and override any
+        matching settings supplied by the structure.
+        """
+        setattrFromKeywordArguments(self, **kwargs)
+        self.eval(structure)
+        setattrFromKeywordArguments(self, **kwargs)
+        return self.pdf3d
+
+
+_defineCommonInterface(PDF3DCalculator)
+
+PDF3DCalculator.qmin = propertyFromExtDoubleAttr(
+    "qmin",
+    (
+        "Lower bound of the experimental Q-range used."
+        "  Affects the shape envelope. [0 1/A]"
+    ),
+)
+
+PDF3DCalculator.qmax = propertyFromExtDoubleAttr(
+    "qmax",
+    (
+        "Upper bound of the experimental Q-range used."
+        "  Affects the termination ripples.  Not used when zero. [0 1/A]"
+    ),
+)
+
+# End of class PDF3DCalculator
+
 # Historical pickles and direct extension imports use these public names.
 _srreal_ext.DebyePDFCalculator = DebyePDFCalculator
 _srreal_ext.PDFCalculator = PDFCalculator
+_srreal_ext.PDF3DCalculator = PDF3DCalculator
 
 # End of file

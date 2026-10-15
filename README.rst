@@ -54,6 +54,9 @@ other library that provides parallel map function.  PDF calculations can
 be done in two modes - either as a real-space summation of peak profiles
 (PDFCalculator) or as a reciprocal-space Debye summation and Fourier
 transform of the total scattering structure function (DebyePDFCalculator).
+PDF3DCalculator evaluates anisotropic pair-density peaks or vector histograms
+on a cubic three-dimensional real-space grid and supports finite-Q filtering,
+parallel pair summation, binary grid export, and pickle serialization.
 
 The diffpy.srreal package is a Python binding to the C++ library libdiffpy
 (https://github.com/diffpy/libdiffpy).  Calculators are created as

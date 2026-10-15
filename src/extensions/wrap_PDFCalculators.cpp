@@ -20,6 +20,7 @@
 
 #include <diffpy/srreal/DebyePDFCalculator.hpp>
 #include <diffpy/srreal/PDFCalculator.hpp>
+#include <diffpy/srreal/PDF3DCalculator.hpp>
 #include <diffpy/srreal/GaussianProfile.hpp>
 #include <diffpy/srreal/JeongPeakWidth.hpp>
 #include <diffpy/srreal/LinearBaseline.hpp>
@@ -140,6 +141,68 @@ object or a string type of a registered PDFBaseline class.\n\
 Use PDFBaseline.getRegisteredTypes() for the set of allowed values.\n\
 ";
 
+const char* doc_PDF3DCalculator = "\
+Calculate 3D real-space pair distribution function on a cubic grid.\n\
+";
+
+const char* doc_PDF3DCalculator_pdf3d = "\
+3D PDF data as a flattened NumPy array of non-zero bins: [x, y, z, G, ...].\n\
+Reshape in Python with arr.reshape(-1, 4).\n\
+";
+
+const char* doc_PDF3DCalculator_radialhistogram3d = "\
+Radial histogram data as a flattened NumPy array: [r0, G0, r1, G1, ...].\n\
+";
+
+const char* doc_PDF3DCalculator_gridstep = "\
+Spacing of the 3D grid in Angstrom. Must be positive.\n\
+";
+
+const char* doc_PDF3DCalculator_accumblocksize = "\
+Block size used by tiled accumulation loops in 3D real-space summation.\n\
+";
+
+const char* doc_PDF3DCalculator_usecqwindow3d = "\
+If True, apply qmin/qmax 3D q-window in C++.\n\
+If False, export unwindowed G(r) for external FFT post-processing.\n\
+";
+
+const char* doc_PDF3DCalculator_applyrho0background3d = "\
+If True, subtract the rho0 background from the 3D grid.\n\
+";
+
+const char* doc_PDF3DCalculator_calculationmode3d = "\
+3D calculation mode: 0 for ADP PDF, 1 for vector histogram.\n\
+";
+
+const char* doc_PDF3DCalculator_histogramweightmode3d = "\
+3D histogram weight mode: 0 for scattering, 1 for count.\n\
+";
+
+const char* doc_PDF3DCalculator_setDeltaPairTypes3D = "\
+Select the unordered atom-type pair used by the 3D delta correction.\n\
+Use '*' as a wildcard for either atom type.\n\
+";
+
+const char* doc_PDF3DCalculator_deltapaira3d = "\
+First atom type selected for the 3D delta correction (read-only).\n\
+";
+
+const char* doc_PDF3DCalculator_deltapairb3d = "\
+Second atom type selected for the 3D delta correction (read-only).\n\
+";
+
+const char* doc_PDF3DCalculator_deltaeligiblepaircount3d = "\
+Number of directed pair vectors in the selected delta shell (read-only).\n\
+";
+
+const char* doc_PDF3DCalculator_exportGrid3DBinary = "\
+Export dense 3D grid (nz, ny, nx) directly to a binary file.\n\
+path       -- output file path\n\
+usefloat32 -- True for float32 output, False for float64\n\
+applypost  -- apply q-window/rdf scale/rho0/qdamp before export\n\
+";
+
 const char* doc_fftftog = "\
 Perform sine-fast Fourier transform from F(Q) to G(r).\n\
 The length of the output array is padded to the next power of 2.\n\
@@ -193,6 +256,8 @@ DECLARE_PYARRAY_METHOD_WRAPPER(getRgrid, getRgrid_asarray)
 DECLARE_PYARRAY_METHOD_WRAPPER(getF, getF_asarray)
 DECLARE_PYARRAY_METHOD_WRAPPER(getQgrid, getQgrid_asarray)
 DECLARE_PYLIST_METHOD_WRAPPER(usedEnvelopeTypes, usedEnvelopeTypes_aslist)
+DECLARE_PYARRAY_METHOD_WRAPPER(get3DPDF, get3DPDF_asarray)
+DECLARE_PYARRAY_METHOD_WRAPPER(getRadialHistogram3D, getRadialHistogram3D_asarray)
 
 // wrappers for the peakprofile property
 
@@ -587,6 +652,85 @@ class PDFCalculatorPickleSuite :
         }
 };
 
+class PDF3DCalculatorPickleSuite :
+    public PairQuantityPickleSuite<PDF3DCalculator, DICT_GUARD>
+{
+    private:
+
+        typedef PairQuantityPickleSuite<PDF3DCalculator> Super;
+
+    public:
+
+        template <class C>
+        static void bind(C& cls)
+        {
+            cls
+                .def("__getstate__", getstate)
+                .def("__setstate__", setstate)
+                .def("__reduce__", reduce)
+                ;
+            cls.attr("__getstate_manages_dict__") = nb::none();
+        }
+
+        static nb::tuple getstate(nb::object obj)
+        {
+            PDF3DCalculator& calc = nb::cast<PDF3DCalculator&>(obj);
+            ScopedSharedPtrReplacement<PeakWidthModel> pwm(
+                calc.getPeakWidthModel(), PeakWidthModelPtr(new JeongPeakWidth));
+            ScopedSharedPtrReplacement<ScatteringFactorTable> sft(
+                calc.getScatteringFactorTable(),
+                ScatteringFactorTablePtr(new SFTXray));
+            ScopedSharedPtrReplacement<PeakProfile> peakprofile(
+                calc.getPeakProfile(), PeakProfilePtr(new GaussianProfile));
+            ScopedSharedPtrReplacement<PDFBaseline> baseline(
+                calc.getBaseline(), PDFBaselinePtr(new LinearBaseline));
+            nb::tuple mystate = make_tuple(
+                    peakprofile.state_object(),
+                    baseline.state_object()
+                    );
+            try
+            {
+                nb::tuple rv(
+                        getstate_super<Super>(obj) +
+                        getstate_common(
+                            obj,
+                            pwm.state_object(),
+                            sft.state_object()
+                            ) +
+                        mystate
+                        );
+                return rv;
+            }
+            catch (...)
+            {
+                baseline.restore();
+                peakprofile.restore();
+                sft.restore();
+                pwm.restore();
+                throw;
+            }
+        }
+
+        static void setstate(nb::object obj, nb::tuple state)
+        {
+            ensure_tuple_length(state, 6);
+            // restore the state using boost serialization
+            nb::tuple st0(state[0]);
+            Super::setstate(obj, st0);
+            // restore components that were kept out of Boost serialization
+            PDF3DCalculator& calc = nb::cast<PDF3DCalculator&>(obj);
+            size_t pos = 1;
+            setstate_common(calc, obj, state, pos);
+            assign_pointer_state(calc.getPeakProfile(), state[pos++]);
+            assign_pointer_state(calc.getBaseline(), state[pos++]);
+        }
+
+        static nb::tuple reduce(nb::object obj)
+        {
+            return Super::reduce(obj);
+        }
+};
+
 }   // namespace nswrap_PDFCalculators
 
 // Wrapper definition --------------------------------------------------------
@@ -625,6 +769,60 @@ void wrap_PDFCalculators(nb::module_& m)
                 doc_PDFCalculator_baseline)
         ;
         PDFCalculatorPickleSuite::bind(pdfc_class);
+
+    // PDF3DCalculator
+    nb::class_<PDF3DCalculator, PDFCalculator>
+        pdf3d_class(m, "PDF3DCalculator", doc_PDF3DCalculator);
+    wrap_PDFCommon<PDF3DCalculator>(pdf3d_class)
+        .def(nb::init<>())
+        .def_prop_ro("pdf3d", get3DPDF_asarray<PDF3DCalculator>,
+                doc_PDF3DCalculator_pdf3d)
+        .def_prop_ro("radialhistogram3d",
+                getRadialHistogram3D_asarray<PDF3DCalculator>,
+                doc_PDF3DCalculator_radialhistogram3d)
+        .def_prop_rw("gridstep",
+                &PDF3DCalculator::getGridStep,
+                &PDF3DCalculator::setGridStep,
+                doc_PDF3DCalculator_gridstep)
+        .def_prop_rw("accumblocksize",
+                &PDF3DCalculator::getAccumBlockSize,
+                &PDF3DCalculator::setAccumBlockSize,
+                doc_PDF3DCalculator_accumblocksize)
+        .def_prop_rw("usecqwindow3d",
+                &PDF3DCalculator::getUseCQWindow3D,
+                &PDF3DCalculator::setUseCQWindow3D,
+                doc_PDF3DCalculator_usecqwindow3d)
+        .def_prop_rw("applyrho0background3d",
+                &PDF3DCalculator::getApplyRho0Background3D,
+                &PDF3DCalculator::setApplyRho0Background3D,
+                doc_PDF3DCalculator_applyrho0background3d)
+        .def_prop_rw("calculationmode3d",
+                &PDF3DCalculator::getCalculationMode3D,
+                &PDF3DCalculator::setCalculationMode3D,
+                doc_PDF3DCalculator_calculationmode3d)
+        .def_prop_rw("histogramweightmode3d",
+                &PDF3DCalculator::getHistogramWeightMode3D,
+                &PDF3DCalculator::setHistogramWeightMode3D,
+                doc_PDF3DCalculator_histogramweightmode3d)
+        .def("setDeltaPairTypes3D",
+                &PDF3DCalculator::setDeltaPairTypes3D,
+                nb::arg("atomtype1"), nb::arg("atomtype2"),
+                doc_PDF3DCalculator_setDeltaPairTypes3D)
+        .def_prop_ro("deltapaira3d",
+                &PDF3DCalculator::getDeltaPairA3D,
+                doc_PDF3DCalculator_deltapaira3d)
+        .def_prop_ro("deltapairb3d",
+                &PDF3DCalculator::getDeltaPairB3D,
+                doc_PDF3DCalculator_deltapairb3d)
+        .def_prop_ro("deltaeligiblepaircount3d",
+                &PDF3DCalculator::getDeltaEligiblePairCount3D,
+                doc_PDF3DCalculator_deltaeligiblepaircount3d)
+        .def("exportGrid3DBinary", &PDF3DCalculator::exportGrid3DBinary,
+                nb::arg("path"), nb::arg("usefloat32") = true,
+                nb::arg("applypost") = true,
+                doc_PDF3DCalculator_exportGrid3DBinary)
+        ;
+        PDF3DCalculatorPickleSuite::bind(pdf3d_class);
 
     // FFT functions
     m.def("fftftog", fftftog_array_step,
