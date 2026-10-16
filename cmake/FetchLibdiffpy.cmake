@@ -7,7 +7,7 @@ if(POLICY CMP0135)
 endif()
 
 FetchContent_Declare(libdiffpy
-    URL "https://codeload.github.com/diffpy/libdiffpy/tar.gz/${DIFFPY_GIT_SHA}"
+    URL "https://codeload.github.com/${LIBDIFFPY_GITHUB_REPOSITORY}/tar.gz/${DIFFPY_GIT_SHA}"
     URL_HASH "SHA256=${LIBDIFFPY_ARCHIVE_SHA256}"
     TLS_VERIFY TRUE
 )
